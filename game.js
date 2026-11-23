@@ -26,23 +26,47 @@ function defaultG(){ return { big:1, small:1, pLevels:{ '刘备':1, '关羽':1, 
 function migrateG(raw){
   if(!raw) return defaultG();
   if(typeof raw.big !== 'number') raw.big = 1;
+  if(typeof raw.big !== 'number') raw.big = 1;
   if(typeof raw.small !== 'number') raw.small = 1;
   if(!raw.pLevels) raw.pLevels = { '刘备':1, '关羽':1, '张飞':1 };
   return raw;
 }
 
 function enemyLevel(){ return 1; }
+const GENERAL_LEVEL = {
+  '朱灵':3,'露昭':3,'纪灵':3,'张勋':2,'陈纪':2,'雷薄':2,'陈兰':2,'韩暹':2,
+  '典韦':8,'许褚':7,'夏侯惇':7,'夏侯渊':6,'李典':5,'乐进':5,'于禁':6,'曹洪':5,'曹仁':6,
+  '吕布':9,'陈宫':4,'张辽':7,'高顺':6,'赤兔马':9,'袁术':2
+};
+function cardLevel(name){
+  if(name==='刘备'||name==='关羽'||name==='张飞') return G.pLevels[name];
+  return GENERAL_LEVEL[name] || 1;
+}
+
+function loadLevelPack(big, cb){
+  if(window.LEVEL_PACKS && window.LEVEL_PACKS[big]){ cb(); return; }
+  const sc = document.createElement('script');
+  sc.src = 'level' + big + '.js';
+  sc.onload = cb;
+  sc.onerror = cb;
+  document.head.appendChild(sc);
+}
+function currentPack(){ return (window.LEVEL_PACKS||{})[G.big]; }
+function levelConfig(small){
+  const pack = currentPack();
+  if(!pack) return null;
+  const idx = small - 1;
+  if(idx < 0 || idx >= pack.smalls.length) return null;
+  const sl = pack.smalls[idx];
+  return { title: pack.title, sub: sl.sub, enemies: sl.enemies.slice(), player: sl.player ? sl.player.slice() : null };
+}
+
 function cardAt(name, lvl){ lvl = Math.min(10, Math.max(1, lvl)); return JSON.parse(JSON.stringify(CARD_DATA[name][lvl-1])); }
 
 function saveGame(){ try { localStorage.setItem('tt3k_save', JSON.stringify(G)); } catch(e){} }
 function loadGame(){ try { return migrateG(JSON.parse(localStorage.getItem('tt3k_save'))); } catch(e){ return null; } }
 function clearSave(){ try { localStorage.removeItem('tt3k_save'); } catch(e){} }
 
-function levelConfig(small){
-  if(small === 1) return { title:'第一大关：讨伐袁术', sub:'第一小关：徐州南面山寨', enemies:['纪灵','张勋','陈纪','雷薄','陈兰'] };
-  if(small === 2) return { title:'第一大关：讨伐袁术', sub:'第二小关：南面山洞旁营寨', enemies:['纪灵','雷薄','陈兰','韩暹', (Math.random()<0.5?'张勋':'陈纪')] };
-  return null;
-}
 
 function newMatch(){
   board = new Array(9).fill(null);
@@ -52,14 +76,9 @@ function newMatch(){
     G.small = 1;
     currentCfg = levelConfig(1);
   }
-  handP = [
-    cardAt('刘备', G.pLevels['刘备']),
-    cardAt('关羽', G.pLevels['关羽']),
-    cardAt('张飞', G.pLevels['张飞']),
-    cardAt('朱灵', enemyLevel()),
-    cardAt('露昭', enemyLevel())
-  ];
-  handA = currentCfg.enemies.map(n=>cardAt(n, enemyLevel()));
+  const playerNames = (currentCfg.player && currentCfg.player.length) ? currentCfg.player : ['刘备','关羽','张飞','朱灵','露昭'];
+  handP = playerNames.map(name => cardAt(name, cardLevel(name)));
+  handA = currentCfg.enemies.map(n=>cardAt(n, cardLevel(n)));
   turn = 'player';
   selected = null;
   aiTimer = 0;
@@ -148,39 +167,79 @@ function numText(v){ return v>=10 ? 'A' : String(v); }
 function cellRect(i){ const col=i%3, row=Math.floor(i/3); return { x:BOARD_X+col*(CELL_W+GAP), y:BOARD_Y+row*(CELL_H+GAP), w:CELL_W, h:CELL_H }; }
 function cellAt(mx,my){ for(let i=0;i<9;i++){ const r=cellRect(i); if(mx>=r.x&&mx<=r.x+r.w&&my>=r.y&&my<=r.y+r.h) return i;} return null; }
 
-const MAX_SMALL = { 1: 2 };
 function advanceOnWin(){
-  const max = MAX_SMALL[G.big||1] || 2;
+  const pack = currentPack();
+  const max = (pack && pack.smalls.length) || 1;
   if(G.small < max){
     G.small = G.small + 1;
   } else {
     // complete big level: upgrade protagonists
     for(const k in G.pLevels){ G.pLevels[k] = Math.min(10, G.pLevels[k]+1); }
-    // stay at last small level
-    G.small = max;
+    // advance to next big level if exists
+    if(window.LEVEL_PACKS && window.LEVEL_PACKS[G.big+1]){
+      G.big = G.big + 1;
+      G.small = 1;
+    } else {
+      G.small = max;
+    }
   }
   saveGame();
 }
 
 // ---- Intro Scene ----
+
+class StoryScene extends Phaser.Scene {
+  constructor(){ super('StoryScene'); }
+  create(){
+    this.cameras.main.setBackgroundColor('rgba(0,0,0,0)');
+    const panel = this.add.rectangle(W/2, H/2, 900, 400, 0x000000, 0.6).setOrigin(0.5,0.5).setStrokeStyle(2, 0x9cf);
+    const title = this.add.text(W/2, H/2-150, '剧情介绍', {fontSize:'28px',color:'#9cf',fontFamily:FONT}).setOrigin(0.5,0);
+    const pack = currentPack() || {};
+    const text = pack.story || '';
+    const t = this.add.text(W/2, H/2-20, text, {fontSize:'22px',color:'#fff',fontFamily:FONT, align:'center', wordWrap:{width:820}, lineSpacing:8}).setOrigin(0.5,0);
+    const btn = this.add.rectangle(W/2, H/2+120, 160, 46, 0x1a2b62).setOrigin(0.5,0.5).setInteractive({useHandCursor:true});
+    const bt = this.add.text(W/2, H/2+120, '继续', {fontSize:'20px',color:'#fff',fontFamily:FONT}).setOrigin(0.5,0.5);
+    btn.on('pointerover',()=>btn.setFillStyle(0x2a449d));
+    btn.on('pointerout',()=>btn.setFillStyle(0x1a2b62));
+    btn.on('pointerdown',()=>{
+      if(!G){ G=defaultG(); saveGame(); }
+      this.scene.start('GameScene');
+    });
+  }
+}
+
 class IntroScene extends Phaser.Scene {
   constructor(){ super('IntroScene'); }
+  preload(){
+	//this.load.image('introBg','intro.png');
+  }
   create(){
-    this.cameras.main.setBackgroundColor('#0b140d');
-    const g = this.add.graphics(); g.fillStyle(0x09140c,1); g.fillRect(0,0,W,H);
+    //this.cameras.main.setBackgroundColor('#0b140d');
+    //const bg = this.add.image(W/2, H/2, 'introBg');
+    //bg.setDisplaySize(W, H);
+    //const g = this.add.graphics(); g.fillStyle(0x000000,0.35); g.fillRect(0,0,W,H);
     this.add.text(W/2, 120, '吞食九州', {fontSize:'44px',color:'#9cf',fontFamily:FONT}).setOrigin(0.5,0);
 
     let y = 320;
     const save = loadGame();
     if(save){
-      this.makeBtn(W/2, y, '继续游戏', ()=>{ G = save; this.scene.start('GameScene'); });
+      this.makeBtn(W/2, y, '继续游戏', ()=>{ loadLevelPack(save.big||1, ()=>{ G = save; this.scene.start('GameScene'); }); });
       y += 70;
     }
     this.makeBtn(W/2, y, '从新开始', ()=>{
       clearSave();
       G = defaultG();
       saveGame();
-      this.scene.start('GameScene');
+      loadLevelPack(G.big, ()=>{ this.scene.start('StoryScene'); });
+    });
+    this.makeBtn(W/2, y+70, '第二大关 (debug)', ()=>{
+      clearSave();
+      G = defaultG();
+      G.big = 2;
+      G.small = 1;
+      G.pLevels = { '刘备':2, '关羽':2, '张飞':2 };
+      saveGame();
+      loadLevelPack(2, ()=>{ this.scene.start('StoryScene'); });
     });
   }
   makeBtn(x,y,label,cb){
@@ -205,6 +264,16 @@ class GameScene extends Phaser.Scene {
     this.scoreP = this.add.text(880,610,'',{fontSize:'18px',color:'#459',fontFamily:FONT});
     this.hint = this.add.text(20,34,'',{fontSize:'16px',color:'#fff',fontFamily:FONT});
     this.footer = this.add.text(20,H-22,'基本规则：数字大者翻面 | R = 重新开始 | ESC = 返回',{fontSize:'14px',color:'#b0bcb0',fontFamily:FONT});
+    const dbg = this.add.rectangle(W-90, 40, 150, 36, 0x663399).setOrigin(0.5,0.5).setInteractive({useHandCursor:true});
+    const dbt = this.add.text(W-90, 40, '下一关(debug)', {fontSize:'14px',color:'#fff',fontFamily:FONT}).setOrigin(0.5,0.5);
+    dbg.on('pointerdown', ()=>{
+      const pack = currentPack();
+      const max = (pack && pack.smalls.length) || 1;
+      if(G.small < max) G.small++;
+      else if(window.LEVEL_PACKS && window.LEVEL_PACKS[G.big+1]){ G.big++; G.small=1; }
+      saveGame();
+      newMatch(); this.refresh(); this.resultOverlay.setVisible(false);
+    });
 
     this.cellBg = [];
     for(let i=0;i<9;i++){
@@ -234,6 +303,7 @@ class GameScene extends Phaser.Scene {
     this.input.on('pointerdown', (p)=>this.onPointerDown(p.x,p.y));
     this.input.keyboard.on('keydown-R', ()=>{ newMatch(); this.refresh(); this.resultOverlay.setVisible(false); });
     this.input.keyboard.on('keydown-ESC', ()=>{ this.scene.start('IntroScene'); });
+    this.input.keyboard.on('keydown-N', ()=>{ const pack=currentPack(); const max=(pack&&pack.smalls.length)||1; if(G.small<max) G.small++; else if(window.LEVEL_PACKS&&window.LEVEL_PACKS[G.big+1]){ G.big++; G.small=1;} saveGame(); newMatch(); this.refresh(); this.resultOverlay.setVisible(false); });
 
     newMatch();
     this.refresh();
@@ -414,6 +484,7 @@ class GameScene extends Phaser.Scene {
 }
 
 function makeCard(scene, card, owner, x, y, w, h){
+  if(!card) card = {name:'?',top:0,left:0,right:0,bottom:0,level:0};
   const cont = scene.add.container(x,y);
   const ownerColor = owner==='ai' ? 0x5a1616 : 0x1a2b62;
   const body = scene.add.rectangle(0,0,w,h,0x060608).setOrigin(0,0);
@@ -434,6 +505,8 @@ const config = {
   type: Phaser.AUTO,
   width: W, height: H,
   parent: 'game',
-  scene: [IntroScene, GameScene]
+  transparent: true,
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [IntroScene, StoryScene, GameScene]
 };
 new Phaser.Game(config);

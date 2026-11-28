@@ -1,6 +1,12 @@
-const W = 1000, H = 760;
-const CELL_W = 120, CELL_H = 160, GAP = 10;
-const BOARD_X = 310, BOARD_Y = 130;
+function isMobile(){ return (typeof window !== 'undefined') && (window.matchMedia ? (window.matchMedia('(max-width: 768px)').matches || window.matchMedia('(pointer: coarse)').matches) : (window.innerWidth < 768)); }
+const MOBILE = isMobile();
+const W = MOBILE ? 720 : 1000;
+const H = MOBILE ? 1280 : 760;
+const CELL_W = MOBILE ? 150 : 100;
+const CELL_H = MOBILE ? 200 : 133;
+const GAP = MOBILE ? 12 : 10;
+const BOARD_X = MOBILE ? (W - (3*CELL_W + 2*GAP)) / 2 : (W - (3*CELL_W + 2*GAP)) / 2;
+const BOARD_Y = MOBILE ? 326 : 168;
 const HAND_W = 100, HAND_H = 133;
 const FONT = '"Microsoft YaHei","SimHei","PingFang SC",sans-serif';
 
@@ -76,7 +82,13 @@ function newMatch(){
     G.small = 1;
     currentCfg = levelConfig(1);
   }
-  const playerNames = (currentCfg.player && currentCfg.player.length) ? currentCfg.player : ['刘备','关羽','张飞','朱灵','露昭'];
+  let playerNames;
+  if(G.big === 2 && G.small === 2){
+    const picks = (G.selectedCao && G.selectedCao.length===2) ? G.selectedCao : ['典韦','许褚'];
+    playerNames = ['刘备','关羽','张飞'].concat(picks);
+  } else {
+    playerNames = (currentCfg.player && currentCfg.player.length) ? currentCfg.player : ['刘备','关羽','张飞','朱灵','露昭'];
+  }
   handP = playerNames.map(name => cardAt(name, cardLevel(name)));
   handA = currentCfg.enemies.map(n=>cardAt(n, cardLevel(n)));
   turn = 'player';
@@ -192,11 +204,11 @@ class StoryScene extends Phaser.Scene {
   constructor(){ super('StoryScene'); }
   create(){
     this.cameras.main.setBackgroundColor('rgba(0,0,0,0)');
-    const panel = this.add.rectangle(W/2, H/2, 900, 400, 0x000000, 0.6).setOrigin(0.5,0.5).setStrokeStyle(2, 0x9cf);
+    const panel = this.add.rectangle(W/2, H/2, Math.min(900,W-40), 400, 0x000000, 0.6).setOrigin(0.5,0.5).setStrokeStyle(2, 0x9cf);
     const title = this.add.text(W/2, H/2-150, '剧情介绍', {fontSize:'28px',color:'#9cf',fontFamily:FONT}).setOrigin(0.5,0);
     const pack = currentPack() || {};
     const text = pack.story || '';
-    const t = this.add.text(W/2, H/2-20, text, {fontSize:'22px',color:'#fff',fontFamily:FONT, align:'center', wordWrap:{width:820}, lineSpacing:8}).setOrigin(0.5,0);
+    const t = this.add.text(W/2, H/2-20, text, {fontSize:'22px',color:'#fff',fontFamily:FONT, align:'center', wordWrap:{width:Math.min(820,W-80)}, lineSpacing:8}).setOrigin(0.5,0);
     const btn = this.add.rectangle(W/2, H/2+120, 160, 46, 0x1a2b62).setOrigin(0.5,0.5).setInteractive({useHandCursor:true});
     const bt = this.add.text(W/2, H/2+120, '继续', {fontSize:'20px',color:'#fff',fontFamily:FONT}).setOrigin(0.5,0.5);
     btn.on('pointerover',()=>btn.setFillStyle(0x2a449d));
@@ -205,6 +217,49 @@ class StoryScene extends Phaser.Scene {
       if(!G){ G=defaultG(); saveGame(); }
       this.scene.start('GameScene');
     });
+  }
+}
+
+
+class SelectionScene extends Phaser.Scene {
+  constructor(){ super('SelectionScene'); }
+  create(){
+    this.cameras.main.setBackgroundColor('rgba(0,0,0,0)');
+    const panel = this.add.rectangle(W/2, H/2, Math.min(920,W-40), 520, 0x000000, 0.65).setOrigin(0.5,0.5).setStrokeStyle(2,0x9cf);
+    this.add.text(W/2, H/2-220, '选择两位曹方将领', {fontSize:'28px',color:'#9cf',fontFamily:FONT}).setOrigin(0.5,0);
+    const cao = ['典韦','许褚','夏侯惇','夏侯渊','李典','乐进','于禁','曹洪','曹仁'];
+    this.selected = [];
+    this.btns = [];
+    const step = MOBILE ? 64 : 70;
+    let x0 = W/2 - (cao.length-1)*step/2;
+    for(let i=0;i<cao.length;i++){
+      const x = x0 + i*step;
+      const y = H/2 - 60;
+      const btn = this.add.rectangle(x, y, 60, 80, 0x1a2b62).setOrigin(0.5,0.5).setInteractive({useHandCursor:true});
+      const txt = this.add.text(x, y, cao[i], {fontSize:'14px',color:'#fff',fontFamily:FONT}).setOrigin(0.5,0.5);
+      btn._name = cao[i]; btn._txt = txt;
+      btn.on('pointerdown', ()=>this.toggle(btn));
+      this.btns.push(btn);
+    }
+    const confirm = this.add.rectangle(W/2, H/2+180, 180, 46, 0x1a2b62).setOrigin(0.5,0.5).setInteractive({useHandCursor:true});
+    const ctext = this.add.text(W/2, H/2+180, '确认出战', {fontSize:'20px',color:'#fff',fontFamily:FONT}).setOrigin(0.5,0.5);
+    confirm.on('pointerdown', ()=>{
+      if(this.selected.length !== 2) return;
+      if(!G) G=defaultG();
+      G.selectedCao = this.selected.slice();
+      saveGame();
+      this.scene.start('GameScene');
+    });
+    this.statusText = this.add.text(W/2, H/2+120, '已选 0 / 2', {fontSize:'18px',color:'#fff',fontFamily:FONT}).setOrigin(0.5,0);
+  }
+  toggle(btn){
+    const idx = this.selected.indexOf(btn._name);
+    if(idx >= 0){ this.selected.splice(idx,1); btn.setFillStyle(0x1a2b62); }
+    else {
+      if(this.selected.length >= 2) return;
+      this.selected.push(btn._name); btn.setFillStyle(0x2a449d);
+    }
+    this.statusText.setText('已选 ' + this.selected.length + ' / 2');
   }
 }
 
@@ -218,7 +273,7 @@ class IntroScene extends Phaser.Scene {
     //const bg = this.add.image(W/2, H/2, 'introBg');
     //bg.setDisplaySize(W, H);
     //const g = this.add.graphics(); g.fillStyle(0x000000,0.35); g.fillRect(0,0,W,H);
-    this.add.text(W/2, 120, '吞食九州', {fontSize:'44px',color:'#9cf',fontFamily:FONT}).setOrigin(0.5,0);
+    this.add.text(W/2, 120, '九州三国', {fontSize:'44px',color:'#9cf',fontFamily:FONT}).setOrigin(0.5,0);
 
     let y = 320;
     const save = loadGame();
@@ -260,10 +315,11 @@ class GameScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#0b140d');
     const bg = this.add.graphics(); bg.fillStyle(0x09140c,1); bg.fillRect(0,0,W,H);
     this.titleText = this.add.text(20,8,'',{fontSize:'16px',color:'#9cf',fontFamily:FONT});
-    this.scoreAi = this.add.text(40,160,'',{fontSize:'18px',color:'#f44',fontFamily:FONT});
-    this.scoreP = this.add.text(880,610,'',{fontSize:'18px',color:'#459',fontFamily:FONT});
+    this.scoreAi = this.add.text(MOBILE ? 20 : 40, MOBILE ? 150 : 160,'',{fontSize:'18px',color:'#f44',fontFamily:FONT});
+    this.scoreP = this.add.text(MOBILE ? W-120 : 880, MOBILE ? H-160 : 610,'',{fontSize:'18px',color:'#459',fontFamily:FONT});
     this.hint = this.add.text(20,34,'',{fontSize:'16px',color:'#fff',fontFamily:FONT});
     this.footer = this.add.text(20,H-22,'基本规则：数字大者翻面 | R = 重新开始 | ESC = 返回',{fontSize:'14px',color:'#b0bcb0',fontFamily:FONT});
+    if(MOBILE) this.footer.setVisible(false);
     const dbg = this.add.rectangle(W-90, 40, 150, 36, 0x663399).setOrigin(0.5,0.5).setInteractive({useHandCursor:true});
     const dbt = this.add.text(W-90, 40, '下一关(debug)', {fontSize:'14px',color:'#fff',fontFamily:FONT}).setOrigin(0.5,0.5);
     dbg.on('pointerdown', ()=>{
@@ -272,7 +328,11 @@ class GameScene extends Phaser.Scene {
       if(G.small < max) G.small++;
       else if(window.LEVEL_PACKS && window.LEVEL_PACKS[G.big+1]){ G.big++; G.small=1; }
       saveGame();
-      newMatch(); this.refresh(); this.resultOverlay.setVisible(false);
+      if(G.big === 2 && G.small === 2){
+        this.scene.start('SelectionScene');
+      } else {
+        newMatch(); this.refresh(); this.resultOverlay.setVisible(false);
+      }
     });
 
     this.cellBg = [];
@@ -303,7 +363,7 @@ class GameScene extends Phaser.Scene {
     this.input.on('pointerdown', (p)=>this.onPointerDown(p.x,p.y));
     this.input.keyboard.on('keydown-R', ()=>{ newMatch(); this.refresh(); this.resultOverlay.setVisible(false); });
     this.input.keyboard.on('keydown-ESC', ()=>{ this.scene.start('IntroScene'); });
-    this.input.keyboard.on('keydown-N', ()=>{ const pack=currentPack(); const max=(pack&&pack.smalls.length)||1; if(G.small<max) G.small++; else if(window.LEVEL_PACKS&&window.LEVEL_PACKS[G.big+1]){ G.big++; G.small=1;} saveGame(); newMatch(); this.refresh(); this.resultOverlay.setVisible(false); });
+    this.input.keyboard.on('keydown-N', ()=>{ const pack=currentPack(); const max=(pack&&pack.smalls.length)||1; if(G.small<max) G.small++; else if(window.LEVEL_PACKS&&window.LEVEL_PACKS[G.big+1]){ G.big++; G.small=1;} saveGame(); if(G.big === 2 && G.small === 2){ this.scene.start('SelectionScene'); } else { newMatch(); this.refresh(); this.resultOverlay.setVisible(false); } });
 
     newMatch();
     this.refresh();
@@ -328,19 +388,23 @@ class GameScene extends Phaser.Scene {
   doRetry(){
     const s = loadGame();
     if(s) G = s;
-    newMatch();
-    this.refresh();
-    this.resultOverlay.setVisible(false);
+    if(G.big === 2 && G.small === 2){
+      this.scene.start('SelectionScene');
+    } else {
+      newMatch();
+      this.refresh();
+      this.resultOverlay.setVisible(false);
+    }
   }
   doNext(){
     if(!result || !result.startsWith('你赢了')) return;
-    if(G.small < 2){
-      // already upgraded in onPointer/aiMove? upgrade once: guard
+    if(G.big === 2 && G.small === 2){
+      this.scene.start('SelectionScene');
+    } else {
+      newMatch();
+      this.refresh();
+      this.resultOverlay.setVisible(false);
     }
-    // advance already done on win; just new match
-    newMatch();
-    this.refresh();
-    this.resultOverlay.setVisible(false);
   }
 
   update(time, delta){
@@ -506,7 +570,7 @@ const config = {
   width: W, height: H,
   parent: 'game',
   transparent: true,
-  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-  scene: [IntroScene, StoryScene, GameScene]
+  scale: { mode: isMobile() ? Phaser.Scale.HEIGHT_CONTROLS_WIDTH : Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [IntroScene, StoryScene, SelectionScene, GameScene]
 };
 new Phaser.Game(config);
